@@ -29,6 +29,9 @@ def generate_session_id():
 
 
 def add_to_cart(product_id, quantity):
+    if product_id > len(catalog):
+        print("\nInvalid Product ID! Try Again!\n")
+        return
     for product in cart:
         if product['product_id'] == product_id:
             product['quantity'] += 1
@@ -48,9 +51,9 @@ def delete_from_cart(product_id):
         if product['product_id'] == product_id:
             cart.remove(product)
             print("\nProduct removed from cart!\n")
+            display_cart()
             return
     print("\nNo product found!\n")
-    display_cart()
     
 def checkout():
     if len(cart) > 0:

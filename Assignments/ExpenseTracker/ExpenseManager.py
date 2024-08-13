@@ -4,6 +4,9 @@ class Storage:
     expenses = []
     
     def add_expense(self, expense):
+        for exp in self.expenses:
+            if expense.expense_id == exp.expense_id:
+                raise ValueError("\nExpense with similar ID exists already!")
         if expense not in self.expenses:            
             self.expenses.append(expense)
         
@@ -76,6 +79,6 @@ class Storage:
                 print(f"Login successful as user.")
                 return True
             else:
-                print("Login Failed")
+                print("\nLogin Failed! Try Again!")
                 return False
                     

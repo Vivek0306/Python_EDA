@@ -30,13 +30,14 @@ while True:
         if choice == '1':
             try:
                 id = int(input("Enter expense id: "))
-                date = input("Enter date of expense (YYYY-MM-DD): ")
+                date = input("Enter date of expense (DD-MM-YYYY): ")
                 category = input("Enter the category of expense: ")
                 description = input("Enter expense description: ")
                 amount = float(input("Enter expense amount: "))
                 expense = Expense(id, date, category, description, amount)
-                print(expense)
                 storage.add_expense(expense)
+                print(expense)
+
             except ValueError as e:
                 print(f"\n{e}\n")
         
