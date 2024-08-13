@@ -1,0 +1,1 @@
+lambda mark: 'A' if mark >= 85 else 'B' if mark >= 70 else 'C' if mark >= 50 else 'D' if mark >= 35 else 'F'
