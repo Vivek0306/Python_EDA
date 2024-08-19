@@ -79,6 +79,30 @@ order by DOLocationID
 select trip_distance, count(*) as count_dist from taxitrips where trip_distance > 0 
 group by trip_distance
 order by trip_distance, count_dist desc;
+--6. Create a New Column for Trip Distance Band and Show Distribution
+
+alter table taxitrips
+add Trip_Distance_Band varchar(50);
+
+-- Update Trip_Distance_Band based on the trip_distance and ntile calculations
+WITH DistanceCTE AS (
+    SELECT
+        trip_distance,
+        NTILE(3) OVER(ORDER BY trip_distance) AS ntile
+    FROM taxitrips
+)
+UPDATE taxitrips
+SET Trip_Distance_Band = CASE
+    WHEN DistanceCTE.ntile = 3 THEN 'LONG DISTANCE'
+    WHEN DistanceCTE.ntile = 2 THEN 'MEDIUM DISTANCE'
+    ELSE 'SHORT DISTANCE'
+END
+FROM taxitrips
+JOIN DistanceCTE ON taxitrips.trip_distance = DistanceCTE.trip_distance;
+
+
+select * from taxitrips
+
 
 -- 7) Find the Most Frequent Pickup Location (Mode) with rides fare greater than average of ride fare
 select TOP(1) PULocationID, count(PULocationID) as count from taxitrips 
@@ -135,3 +159,37 @@ select trip_distance, fare_amount from taxitrips
 where trip_distance > 0 and fare_amount > 0
 group by trip_distance, fare_amount
 order by trip_distance, fare_amount
+
+-- 15) Identify Trips with Outlier Fare Amounts within Each Pickup Location
+-- values should be greater than 
+select PULocationID, fare_amount from
+(select PULocationID, fare_amount,
+	PERCENTILE_CONT(0.25)  WITHIN GROUP (ORDER BY fare_amount) OVER() as Q1,
+	PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY fare_amount) OVER() as Q2,
+	PERCENTILE_CONT(0.75)  WITHIN GROUP (ORDER BY fare_amount) OVER() as Q3,
+	PERCENTILE_CONT(0.75)  WITHIN GROUP (ORDER BY fare_amount) OVER() -
+	PERCENTILE_CONT(0.25)  WITHIN GROUP (ORDER BY fare_amount) OVER() as IQR
+from taxitrips) Quartiles
+where fare_amount < Q1 - 1.5*IQR or fare_amount > Q3 + 1.5*IQR
+
+
+
+-- 16) Categorize Trips Based on Distance Travelled
+select * from taxitrips
+select trip_distance,
+	CASE
+		WHEN ntile = 3 THEN 'LONG DISTANCE' 
+		WHEN ntile = 2 THEN 'MEDIUM DISTANCE'
+		ELSE 'SHORT DISTANCE'
+	END as Trip_Type
+FROM (
+select trip_distance,
+	NTILE(3) OVER(ORDER BY trip_distance) as ntile
+from taxitrips
+) DistanceCTE
+
+-- 17) Top 5 Busiest Pickup Locations, Drop Locations with Fare less than median total fare
+select PULocationID, DOLocationID, count(*) as Trip_counts 
+from taxitrips
+group by PULocationID, DOLocationID
+order by Trip_counts desc
