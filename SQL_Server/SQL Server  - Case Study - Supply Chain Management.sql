@@ -169,3 +169,112 @@ DENSE_RANK() OVER(PARTITION BY wh_breakdown_l3m ORDER BY wh_breakdown_l3m ASC) A
 
 select sum(transport_issue_l1y) as avg_transport_issue, flood_impacted from fmcg
 group by flood_impacted;
+
+
+-- q) Window Functions: RAN, DENSE_RANK, LAG, LEAD
+--Rank Warehouses by Product Weight within Each Zone:
+--Question: How do you rank warehouses based on the product weight they handle within each zone, allowing ties?
+
+select Ware_house_ID, zone, product_wg_ton, 
+DENSE_RANK() OVER(PARTITION BY zone ORDER BY product_wg_ton DESC) as Wh_Rank from fmcg;
+
+
+-- r) Question: How can you use DENSE_RANK to find the most efficient warehouses in terms of breakdown incidents within each zone?
+select Ware_house_ID, zone, wh_breakdown_l3m, storage_issue_reported_l3m, transport_issue_l1y, dist_from_hub,
+DENSE_RANK() OVER(PARTITION BY zone ORDER BY wh_breakdown_l3m, storage_issue_reported_l3m, transport_issue_l1y, dist_from_hub) as Wh_Rank from fmcg;
+
+-- s) Calculate the Difference in Storage Issues Using LAG.
+-- Question: How can you use LAG to calculate the difference in storage issues reported 
+-- between consecutive warehouses within each zone?
+
+SELECT Ware_house_ID, Location_type, zone, wh_owner_type, dist_from_hub, product_wg_ton, storage_issue_reported_l3m,
+LAG(storage_issue_reported_l3m, 1, 0) OVER(PARTITION BY zone ORDER BY Ware_house_ID)
+AS Prev_Storage_issue, 
+storage_issue_reported_l3m - LAG(storage_issue_reported_l3m, 1, 0) OVER(PARTITION BY zone ORDER BY Ware_house_ID) as Diff_Storage_ISsue
+FROM fmcg
+
+-- t) Compare Current and Next Warehouse's Distance Using LEAD:
+-- Question: How can you compare the distance from the hub of the current warehouse to the next one using LEAD?
+
+SELECT Ware_house_ID, Location_type, zone, wh_owner_type, dist_from_hub,
+LEAD(dist_from_hub, 1, 0) OVER(ORDER BY zone)
+AS Prev_Dist,
+dist_from_hub - LEAD(dist_from_hub, 1, 0) OVER(ORDER BY zone)
+AS Diff_Dist
+FROM fmcg
+
+
+-- u) Categorize Warehouses by Product Weight. 
+-- Question: How can you categorize warehouses as 'Low', 'Medium', or 'High' 
+-- based on the amount of product weight they handle?
+
+select product_wg_ton,
+case
+	when Quartiles = 1 THEN 'Low'
+	when Quartiles = 3  THEN 'High'
+	else 'Medium'
+END as Weight
+from (SELECT product_wg_ton,
+NTILE(3) OVER(ORDER BY product_wg_ton)
+AS Quartiles FROM fmcg) weightCTE
+
+-- w) Create a Stored Procedure to Fetch High-Risk Warehouses:
+-- Question: How would you create a stored procedure that returns all warehouses
+-- classified as 'High Risk' based on the number of breakdowns and storage issues?
+CREATE PROCEDURE HighRiskWarehouse
+AS
+	BEGIN
+		select Ware_house_ID,storage_issue_reported_l3m, transport_issue_l1y, wh_breakdown_l3m,
+		CASE
+			WHEN (storage_issue_reported_l3m > 10 or 
+			wh_breakdown_l3m > 5) and transport_issue_l1y > 0 THEN 'High Risk'
+			ELSE 'Low Risk'
+		END as Risk_Factor from fmcg;
+	END;
+exec HighRiskWarehouse;
+
+-- x) Create a Stored Procedure to Calculate Warehouse Efficiency:
+-- Question: How would you create a stored procedure to calculate and return the efficiency 
+-- of each warehouse based on its product weight and number of distributors?
+
+CREATE PROCEDURE Warehouse_Efficiency
+AS
+	BEGIN
+		SELECT Ware_house_ID, distributor_num, product_wg_ton,
+		CASE 
+			WHEN tiles = 1 THEN 'High Efficiency'
+			WHEN tiles = 2 THEN 'Medium Efficiency'
+			ELSE 'Low Efficiency'
+		END as Efficiency
+		FROM (SELECT Ware_house_ID, distributor_num, product_wg_ton,
+		NTILE(3) OVER(ORDER BY efficiency) as tiles from 
+		(select Ware_house_ID, distributor_num, product_wg_ton, 
+		(product_wg_ton / distributor_num)  as efficiency 
+		from fmcg) tile_table) main
+	END
+
+exec Warehouse_Efficiency
+
+
+-- y) Create a View for Warehouse Overview:
+-- Question: How can you create a view that shows an overview of warehouses, 
+-- including their location, product weight, and flood-proof status?
+
+CREATE VIEW Wh_overview AS
+	select Ware_house_ID, Location_type, zone, product_wg_ton, distributor_num,flood_proof from fmcg;
+
+select * from Wh_overview;
+
+-- View is to create a temporary table. View is created using table or tables or a SQL query
+-- View doesnt not store any records in it
+
+
+-- z) Create a View for High-Capacity Warehouses. 
+-- Question: How would you create a view to display only those warehouses 
+-- with a product weight greater than 100 tons?
+
+CREATE VIEW Product_Weights 
+AS
+	select Ware_house_ID, product_wg_ton from fmcg where product_wg_ton > 10000;
+
+select * from Product_Weights;
