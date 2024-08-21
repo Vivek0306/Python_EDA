@@ -8,11 +8,10 @@ BEGIN
 END
 
 USE taxitripsdb;
-
 CREATE TABLE taxitrips (
     VendorID INT,
-    lpep_pickup_datetime VARCHAR(50),
-    lpep_dropoff_datetime VARCHAR(50),
+    lpep_pickup_datetime DATETIME,
+    lpep_dropoff_datetime DATETIME,
     store_and_fwd_flag VARCHAR(5),
     RatecodeID INT,
     PULocationID INT,
@@ -50,7 +49,7 @@ select count(*) as row_num, (select count(*) from INFORMATION_SCHEMA.COLUMNS) as
 select ROUND(sum(total_amount), 2) as Total_Sales, 
 sum(passenger_count) as Total_Passenger, 
 count(*) as Total_Rides 
-from taxitrips where total_amount > 0 and passenger_count > 1; 
+from taxitrips where trip_distance > 0; 
 
 -- 3) Total Rides with Surcharge and its percentage. 
 select VendorID, lpep_pickup_datetime, total_amount, 
@@ -63,7 +62,8 @@ select PULocationID, total_amount,
 SUM(total_amount) OVER(PARTITION BY PULocationID 
 ORDER BY PULocationID, total_amount asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) 
 as cumulative_total_amount
-from taxitrips where total_amount>0;
+from taxitrips 
+--where total_amount>0;
 
 -- 5) Which Payment Type is Most Common in Each Drop-off Location
 select DOLocationID, max(payment_count) as Payment_Count from
@@ -79,6 +79,8 @@ order by DOLocationID
 select trip_distance, count(*) as count_dist from taxitrips where trip_distance > 0 
 group by trip_distance
 order by trip_distance, count_dist desc;
+
+
 --6. Create a New Column for Trip Distance Band and Show Distribution
 
 alter table taxitrips
@@ -105,7 +107,7 @@ select * from taxitrips
 
 
 -- 7) Find the Most Frequent Pickup Location (Mode) with rides fare greater than average of ride fare
-select TOP(1) PULocationID, count(PULocationID) as count from taxitrips 
+select TOP(5) PULocationID, count(PULocationID) as count from taxitrips 
 where fare_amount > (select avg(fare_amount) from taxitrips)
 group by PULocationID
 order by count DESC
@@ -140,7 +142,6 @@ order by trip_type;
 select PULocationID, fare_amount,
 DENSE_RANK() OVER(PARTITION BY PULocationID ORDER BY fare_amount) as fare_rank
 from taxitrips
-where fare_amount > 0;
 
 -- 11) Find Top 20 Most Frequent Rides Routes. 
 select TOP(20) PULocationID, DOLocationID, count(*) as frequent_route
@@ -153,12 +154,25 @@ select top(1) (select avg(fare_amount) from taxitrips where trip_distance != 0) 
 (select avg(fare_amount) from taxitrips where trip_distance = 0) as completed_fare
 from taxitrips;
 
+-- 13)  Rank the Pickup Locations  
+--by Average Trip Distance and Average Total Amount
+-- rank pu location based on the value of avg location and avg_total_amount
+-- so we group based on pu location and the average of distance and amount 
+-- for that group of pu locations and we rank p location based on the highest distance and total
+
+select PULocationID,
+avg(trip_distance) as avg_trip_distance,
+avg(total_amount) as avg_total_amount,
+rank() over(order by avg(trip_distance) desc,avg(total_amount) desc) as  combined_rank
+from taxitrips
+group by PULocationID
+order by combined_rank
 
 -- 14) Find the Relationship Between Trip Distance & Fare Amount
-select trip_distance, fare_amount from taxitrips
-where trip_distance > 0 and fare_amount > 0
-group by trip_distance, fare_amount
-order by trip_distance, fare_amount
+select trip_distance,avg(fare_amount) as avg_fare from taxitrips
+where fare_amount > 0
+group by trip_distance order by trip_distance;
+--insight : fare amount increases with trip distance
 
 -- 15) Identify Trips with Outlier Fare Amounts within Each Pickup Location
 -- values should be greater than 
@@ -175,21 +189,63 @@ where fare_amount < Q1 - 1.5*IQR or fare_amount > Q3 + 1.5*IQR
 
 
 -- 16) Categorize Trips Based on Distance Travelled
-select * from taxitrips
-select trip_distance,
-	CASE
-		WHEN ntile = 3 THEN 'LONG DISTANCE' 
-		WHEN ntile = 2 THEN 'MEDIUM DISTANCE'
-		ELSE 'SHORT DISTANCE'
-	END as Trip_Type
-FROM (
-select trip_distance,
-	NTILE(3) OVER(ORDER BY trip_distance) as ntile
-from taxitrips
-) DistanceCTE
+select *,
+case
+	when tile=1 then 'low_distance'
+	when tile=2 then 'medium distance'
+	else'high distance'
+end as distance_category
+from
+(select trip_distance,
+ntile(3) over(order by trip_distance) as tile
+from taxitrips) as mytb
 
--- 17) Top 5 Busiest Pickup Locations, Drop Locations with Fare less than median total fare
-select PULocationID, DOLocationID, count(*) as Trip_counts 
-from taxitrips
-group by PULocationID, DOLocationID
-order by Trip_counts desc
+--17) Top 5 Busiest Pickup Locations, Drop Locations with Fare less than median total fare 
+with medianfare as (select PERCENTILE_CONT(0.5) within group (order by total_amount) over() 
+as MedianPrice
+from taxitrips)
+select top(5) PULocationID, DOLocationID, total_amount 
+from taxitrips where total_amount<(select max(MedianPrice) from medianfare) and total_amount>0 
+order by total_amount desc;
+
+
+--18.Distribution of Payment Types
+select payment_type, count(*) as count_type,
+ROUND((COUNT(*) * 100.0 / (SELECT COUNT(*) FROM taxitrips)), 2) AS percentage
+from taxitrips 
+group by(payment_type);
+
+--19.Trips with Congestion Surcharge Applied and Its Percentage Count.
+select PULocationID, congestion_surcharge,
+case
+	when total_amount>0 then round((congestion_surcharge * 100.0 / total_amount),2)
+	else 0
+end as percentage_charge
+from taxitrips where congestion_surcharge>0;
+
+--20) Top 10 Longest Trip by Distance and Its summary about total amount.
+select top(10) trip_distance,total_amount 
+from taxitrips order by trip_distance desc;
+
+--21)Trips with a Tip Greater than 20% of the Fare
+SELECT RatecodeID,lpep_pickup_datetime,lpep_dropoff_datetime,
+fare_amount,
+tip_amount
+FROM taxitrips
+WHERE tip_amount > 0.2 * fare_amount;
+
+--22) average trip duration based on rate code
+select RatecodeID,
+avg(DATEDIFF(MINUTE, lpep_pickup_datetime, lpep_dropoff_datetime)) AS difference_in_minutes
+from taxitrips where DATEDIFF(MINUTE, lpep_pickup_datetime, lpep_dropoff_datetime) >0
+and RatecodeID is not null
+group by RatecodeID
+order by RatecodeID
+
+--23)Total Trips Per Hour Of the Day
+SELECT 
+    DATEPART(HOUR, lpep_pickup_datetime) AS hour_of_day,
+    COUNT(*) AS total_trips
+FROM taxitrips
+GROUP BY DATEPART(HOUR, lpep_pickup_datetime)
+ORDER BY hour_of_day;
